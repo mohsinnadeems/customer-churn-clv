@@ -1,0 +1,138 @@
+{
+  "data": {
+    "raw_rows": 1067371,
+    "clean_rows": 794165,
+    "customers": 5875,
+    "start": "2009-12-01",
+    "end": "2011-12-09"
+  },
+  "cohorts": {
+    "month1_retention_median": 0.2079
+  },
+  "churn": {
+    "train_rows": 55665,
+    "test_customers": 4324,
+    "test_churn_rate": 0.5046,
+    "train_churn_rate": 0.5634,
+    "mean_predicted_churn": 0.6089,
+    "best_model": "Logistic regression",
+    "models": {
+      "Recency rule": {
+        "roc_auc": 0.708,
+        "pr_auc": 0.6794,
+        "lift_top_10pct": 1.4633,
+        "brier": null
+      },
+      "Logistic regression": {
+        "roc_auc": 0.7659,
+        "pr_auc": 0.7199,
+        "lift_top_10pct": 1.5321,
+        "brier": 0.2051
+      },
+      "Gradient boosting": {
+        "roc_auc": 0.7632,
+        "pr_auc": 0.7221,
+        "lift_top_10pct": 1.5092,
+        "brier": 0.2063
+      },
+      "BG/NBD, no labels": {
+        "roc_auc": 0.7624,
+        "pr_auc": 0.7204,
+        "lift_top_10pct": 1.5,
+        "brier": null
+      }
+    },
+    "importance": {
+      "revenue_365d": 0.0174,
+      "months_active_365d": 0.017,
+      "recency_days": 0.0119,
+      "mean_gap_days": 0.0111,
+      "recency_gap_ratio": 0.007,
+      "products_365d": 0.0045,
+      "return_rate": 0.0036,
+      "revenue_90d": 0.0036,
+      "orders_365d": 0.0019,
+      "spend_trend": 0.0014,
+      "tenure_days": 0.0011,
+      "avg_order_value": 0.0008,
+      "orders_90d": -0.0001,
+      "is_uk": -0.0002,
+      "orders_total": -0.0018
+    }
+  },
+  "clv": {
+    "cutoff": "2011-06-09",
+    "holdout_weeks": 26.1,
+    "customers": 4941,
+    "actual_total": 4558197,
+    "bgnbd_params": {
+      "r": 0.6813,
+      "alpha": 9.4949,
+      "a": 0.1569,
+      "b": 3.3565
+    },
+    "gamma_gamma_params": {
+      "p": 2.4135,
+      "q": 3.4861,
+      "v": 414.8685
+    },
+    "models": {
+      "BG/NBD + Gamma-Gamma": {
+        "mae": 612.7,
+        "spearman": 0.6247,
+        "top20_revenue_capture": 0.7345,
+        "predicted_total": 3660168
+      },
+      "Last 6 months' spend": {
+        "mae": 622.5,
+        "spearman": 0.5686,
+        "top20_revenue_capture": 0.7202,
+        "predicted_total": 3197556
+      },
+      "Gradient boosting (spend)": {
+        "mae": 989.3,
+        "spearman": 0.5699,
+        "top20_revenue_capture": 0.7187,
+        "predicted_total": 7160869
+      }
+    }
+  },
+  "segments": [
+    {
+      "value": "High value",
+      "risk": "High risk",
+      "customers": 541,
+      "spend_12m": 1570033.82,
+      "churn_rate": 0.3013,
+      "actual_revenue": 416249.46,
+      "name": "Act now"
+    },
+    {
+      "value": "High value",
+      "risk": "Low risk",
+      "customers": 540,
+      "spend_12m": 4557973.34,
+      "churn_rate": 0.0741,
+      "actual_revenue": 1565737.31,
+      "name": "Keep happy"
+    },
+    {
+      "value": "Other",
+      "risk": "High risk",
+      "customers": 1622,
+      "spend_12m": 512103.79,
+      "churn_rate": 0.738,
+      "actual_revenue": 191290.69,
+      "name": "Low-cost reactivation"
+    },
+    {
+      "value": "Other",
+      "risk": "Low risk",
+      "customers": 1621,
+      "spend_12m": 1180979.97,
+      "churn_rate": 0.4824,
+      "actual_revenue": 480901.99,
+      "name": "Business as usual"
+    }
+  ]
+}
