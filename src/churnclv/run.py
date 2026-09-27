@@ -14,8 +14,17 @@ from scipy.stats import spearmanr
 from sklearn.ensemble import HistGradientBoostingRegressor
 
 from . import plots
+from .backtest import backtest, monthly_cutoffs, summarise, to_records
 from .churn import calibration_table, evaluate, fit_and_evaluate, importance
-from .clv import BetaGeo, GammaGamma, capture_curve, predict_clv, revenue_capture, rfm_summary
+from .clv import (
+    BetaGeo,
+    GammaGamma,
+    bgnbd_churn_score,
+    capture_curve,
+    predict_clv,
+    revenue_capture,
+    rfm_summary,
+)
 from .cohorts import retention_matrix
 from .data import clean, download_uci, load_raw
 from .features import FEATURES, snapshot, training_set
@@ -28,6 +37,7 @@ TEST_CUTOFF = "2011-09-01"
 HORIZON_DAYS = 90
 CLV_CUTOFF = "2011-06-09"  # six-month holdout to the end of the data
 CLV_TRAIN_CUTOFFS = ["2010-05-09", "2010-06-09", "2010-07-09"]
+BACKTEST_START = TRAIN_CUTOFFS[0]  # first monthly cutoff; folds need 4+ earlier cutoffs
 
 
 def churn_analysis(tx: pd.DataFrame, figs: Path) -> tuple[dict, pd.DataFrame, str]:
@@ -38,10 +48,9 @@ def churn_analysis(tx: pd.DataFrame, figs: Path) -> tuple[dict, pd.DataFrame, st
     y = test["churned"].to_numpy()
 
     # Probabilistic comparison: BG/NBD expected purchases in the horizon (fewer = riskier).
-    s = rfm_summary(tx, TEST_CUTOFF).reindex(test["CustomerID"])
-    bg = BetaGeo().fit(s["frequency"], s["recency"], s["T"])
-    exp_n = bg.expected_purchases(HORIZON_DAYS / 7, s["frequency"], s["recency"], s["T"])
-    preds["BG/NBD, no labels"] = -np.asarray(exp_n)
+    preds["BG/NBD, no labels"] = bgnbd_churn_score(
+        tx, TEST_CUTOFF, test["CustomerID"], HORIZON_DAYS
+    )
     results["BG/NBD, no labels"] = evaluate(y, preds["BG/NBD, no labels"], probabilistic=False)
 
     best = max(("Logistic regression", "Gradient boosting"), key=lambda m: results[m]["roc_auc"])
@@ -66,6 +75,18 @@ def churn_analysis(tx: pd.DataFrame, figs: Path) -> tuple[dict, pd.DataFrame, st
         "importance": imp.round(4).to_dict(),
     }
     return summary, test, best
+
+
+def backtest_analysis(tx: pd.DataFrame, figs: Path) -> dict:
+    bt = backtest(tx, monthly_cutoffs(tx, BACKTEST_START, HORIZON_DAYS), HORIZON_DAYS)
+    plots.backtest_plot(bt, figs / "backtest.png")
+    return {
+        "folds": int(bt["test_cutoff"].nunique()),
+        "first_test_cutoff": str(bt["test_cutoff"].min().date()),
+        "last_test_cutoff": str(bt["test_cutoff"].max().date()),
+        "summary": summarise(bt),
+        "by_fold": to_records(bt),
+    }
 
 
 def clv_analysis(tx: pd.DataFrame, figs: Path) -> dict:
@@ -162,7 +183,7 @@ def segment(scored: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def run(data: Path, out: Path) -> dict:
+def run(data: Path, out: Path, with_backtest: bool = True) -> dict:
     figs = out / "figures"
     figs.mkdir(parents=True, exist_ok=True)
     raw = load_raw(data)
@@ -179,6 +200,7 @@ def run(data: Path, out: Path) -> dict:
 
     churn, scored, _ = churn_analysis(tx, figs)
     clv = clv_analysis(tx, figs)
+    bt = backtest_analysis(tx, figs) if with_backtest else None
 
     seg = segment(scored)
     table = seg.groupby(["value", "risk"]).agg(
@@ -203,6 +225,8 @@ def run(data: Path, out: Path) -> dict:
         "clv": clv,
         "segments": table.reset_index().round(4).to_dict(orient="records"),
     }
+    if bt is not None:
+        metrics["backtest"] = bt
     (out / "metrics.json").write_text(json.dumps(metrics, indent=2, default=str))
     log.info("Wrote %s", out / "metrics.json")
     return metrics
@@ -217,11 +241,14 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("run", help="Run the full analysis")
     r.add_argument("--data", default="data/online_retail_II.xlsx")
     r.add_argument("--out", default="reports")
+    r.add_argument(
+        "--skip-backtest", action="store_true", help="Skip the walk-forward backtest (faster)"
+    )
     a = p.parse_args(argv)
     if a.cmd == "download":
         print(download_uci(a.dest))
     else:
-        run(Path(a.data), Path(a.out))
+        run(Path(a.data), Path(a.out), with_backtest=not a.skip_backtest)
     return 0
 
 
