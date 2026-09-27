@@ -168,3 +168,26 @@ def capture_curve(actual: np.ndarray, predicted: np.ndarray) -> tuple[np.ndarray
 def revenue_capture(actual: np.ndarray, predicted: np.ndarray, top: float = 0.2) -> float:
     frac, cum = capture_curve(actual, predicted)
     return float(cum[int(np.ceil(top * len(actual))) - 1])
+
+
+def bgnbd_churn_score(
+    tx: pd.DataFrame, cutoff: str | pd.Timestamp, customers: pd.Series, horizon_days: int
+) -> np.ndarray:
+    """Churn risk from BG/NBD, fitted without labels on `customers` as of `cutoff`.
+
+    The score is minus the expected number of purchases in the horizon (fewer = riskier).
+    Customers with no positive-revenue purchase day (e.g. returns only) expect none. If
+    the unpenalised fit degenerates (parameters diverge when customers are too alike), it
+    is refitted with a small L2 penalty.
+    """
+    s = rfm_summary(tx, cutoff).reindex(customers)
+    seen = s["T"].notna().to_numpy()
+    fit = s[seen]
+    exp_n = np.zeros(len(s))
+    for penalizer in (0.0, 1e-3):
+        bg = BetaGeo(penalizer).fit(fit["frequency"], fit["recency"], fit["T"])
+        e = bg.expected_purchases(horizon_days / 7, fit["frequency"], fit["recency"], fit["T"])
+        if np.all(np.isfinite(e)):
+            break
+    exp_n[seen] = e
+    return -exp_n
