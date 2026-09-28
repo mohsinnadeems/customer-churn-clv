@@ -22,6 +22,12 @@ PALETTE = {
     "Last 6 months' spend": "#9FB4CA",
     "Gradient boosting (spend)": "#C8412B",
 }
+SEGMENT_COLOURS = {
+    ("High value", "High risk"): "#C8412B",
+    ("High value", "Low risk"): "#2F5D8A",
+    ("Other", "High risk"): "#E9B7AB",
+    ("Other", "Low risk"): "#C9D6E3",
+}
 
 plt.rcParams.update(
     {
@@ -160,12 +166,7 @@ def capture_plot(
 def segment_plot(seg: pd.DataFrame, path: Path) -> None:
     """2x2 grid: churn risk (columns) by value (rows)."""
     fig, ax = plt.subplots(figsize=(7, 4.8))
-    colours = {
-        ("High value", "High risk"): "#C8412B",
-        ("High value", "Low risk"): "#2F5D8A",
-        ("Other", "High risk"): "#E9B7AB",
-        ("Other", "Low risk"): "#C9D6E3",
-    }
+    colours = SEGMENT_COLOURS
     for (value, risk), row in seg.iterrows():
         x = 1 if risk == "High risk" else 0
         y = 1 if value == "High value" else 0
@@ -190,5 +191,56 @@ def segment_plot(seg: pd.DataFrame, path: Path) -> None:
     ax.tick_params(length=0)
     ax.spines[:].set_visible(False)
     ax.set_title("Where to focus retention effort")
+    fig.savefig(path)
+    plt.close(fig)
+
+
+def backtest_plot(bt: pd.DataFrame, path: Path) -> None:
+    """Top: ROC AUC per test month. Bottom: predicted vs actual churn rate per test month."""
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 7), sharex=True, height_ratios=[3, 2])
+    for name, g in bt.groupby("model", sort=False):
+        ax1.plot(
+            g["test_cutoff"],
+            g["roc_auc"],
+            marker="o",
+            ms=4,
+            lw=2,
+            color=PALETTE.get(name),
+            label=name,
+        )
+    ax1.set_ylabel("ROC AUC")
+    ax1.set_title("Churn model performance across test months")
+    ax1.legend(frameon=False, fontsize=8, ncol=2, loc="lower left")
+    _clean(ax1)
+
+    actual = bt.drop_duplicates("test_cutoff")
+    ax2.plot(
+        actual["test_cutoff"],
+        actual["churn_rate"],
+        color=INK,
+        lw=2,
+        ls=":",
+        marker="o",
+        ms=4,
+        label="Actual churn rate",
+    )
+    for name in ("Logistic regression", "Gradient boosting"):
+        g = bt[bt["model"] == name]
+        ax2.plot(
+            g["test_cutoff"],
+            g["mean_predicted"],
+            lw=2,
+            marker="o",
+            ms=4,
+            color=PALETTE.get(name),
+            label=f"Predicted, {name.lower()}",
+        )
+    ax2.set_ylabel("Churn rate, next 90 days")
+    ax2.set_xlabel("Test cutoff (features up to this date, label over the following 90 days)")
+    ax2.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
+    ax2.xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%b %Y"))
+    ax2.legend(frameon=False, fontsize=8)
+    _clean(ax2)
+    fig.autofmt_xdate()
     fig.savefig(path)
     plt.close(fig)
