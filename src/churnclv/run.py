@@ -28,6 +28,7 @@ from .clv import (
 from .cohorts import retention_matrix
 from .data import clean, download_uci, load_raw
 from .features import FEATURES, snapshot, training_set
+from .score import SEGMENT_NAMES, score, segment
 
 log = logging.getLogger("churnclv")
 
@@ -155,34 +156,6 @@ def clv_analysis(tx: pd.DataFrame, figs: Path) -> dict:
     }
 
 
-SEGMENT_NAMES = {
-    ("High value", "High risk"): "Act now",
-    ("High value", "Low risk"): "Keep happy",
-    ("Other", "High risk"): "Low-cost reactivation",
-    ("Other", "Low risk"): "Business as usual",
-}
-
-
-def segment(scored: pd.DataFrame) -> pd.DataFrame:
-    """Combine model churn risk with each customer's spend over the past 12 months.
-
-    Historical value is used rather than predicted CLV, because predicted CLV already
-    discounts customers who look likely to churn, which would empty the high-value,
-    high-risk group by construction.
-    """
-    df = scored.copy()
-    df["value"] = np.where(
-        df["revenue_365d"] >= df["revenue_365d"].quantile(0.75), "High value", "Other"
-    )
-    # High spenders rarely churn, so a single risk threshold would leave almost none of them
-    # flagged. Instead, rank risk within each value tier: the riskier half of each tier is
-    # "high risk". This also makes the split robust to seasonal shifts in the base rate.
-    tier_median = df.groupby("value")["churn_prob"].transform("median")
-    df["risk"] = np.where(df["churn_prob"] >= tier_median, "High risk", "Low risk")
-    df["segment"] = [SEGMENT_NAMES[(v, r)] for v, r in zip(df["value"], df["risk"], strict=True)]
-    return df
-
-
 def run(data: Path, out: Path, with_backtest: bool = True) -> dict:
     figs = out / "figures"
     figs.mkdir(parents=True, exist_ok=True)
@@ -232,6 +205,36 @@ def run(data: Path, out: Path, with_backtest: bool = True) -> dict:
     return metrics
 
 
+def score_customers(data: Path, out: Path, cutoff: str | None = None) -> pd.DataFrame:
+    tx = clean(load_raw(data))
+    scores = score(tx, cutoff, HORIZON_DAYS)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    scores.to_csv(out, index=False, float_format="%.4f")
+    log.info(
+        "Scored %d customers as of %s (model trained on %d cutoffs, %d rows); wrote %s",
+        len(scores),
+        scores.attrs["cutoff"].date(),
+        len(scores.attrs["train_cutoffs"]),
+        scores.attrs["train_rows"],
+        out,
+    )
+    for name, n in scores["segment"].value_counts(sort=False).items():
+        log.info("  %-22s %5d customers", name, n)
+    return scores
+
+
+def launch_dashboard() -> int:
+    try:
+        import streamlit  # noqa: F401
+    except ImportError:
+        log.error('The dashboard needs Streamlit: pip install -e ".[app]"')
+        return 1
+    import subprocess
+
+    app = Path(__file__).with_name("dashboard.py")
+    return subprocess.call([sys.executable, "-m", "streamlit", "run", str(app)])
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     p = argparse.ArgumentParser(prog="churnclv")
@@ -244,9 +247,20 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument(
         "--skip-backtest", action="store_true", help="Skip the walk-forward backtest (faster)"
     )
+    s = sub.add_parser("score", help="Score every active customer: churn risk, CLV and segment")
+    s.add_argument("--data", default="data/online_retail_II.xlsx")
+    s.add_argument("--out", default="reports/scores.csv")
+    s.add_argument(
+        "--cutoff", default=None, help="Score as of this date (default: day after the data ends)"
+    )
+    sub.add_parser("dashboard", help="Open the interactive dashboard (needs the [app] extra)")
     a = p.parse_args(argv)
     if a.cmd == "download":
         print(download_uci(a.dest))
+    elif a.cmd == "score":
+        score_customers(Path(a.data), Path(a.out), a.cutoff)
+    elif a.cmd == "dashboard":
+        return launch_dashboard()
     else:
         run(Path(a.data), Path(a.out), with_backtest=not a.skip_backtest)
     return 0
